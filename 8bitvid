@@ -1,0 +1,52 @@
+#!/bin/bash
+
+filename=$1
+folder=$(pwd)
+
+if [[ $1 == "" ]]; then
+  echo "Usage: $0 videofile.mp4"
+  exit 1
+fi
+
+if [[ ! -e $filename ]]; then
+  echo "$filename does not appear to exist."
+  exit 1
+fi
+
+tmpdir=`mktemp -d -p /tmp/`
+
+if [ $(dpkg-query -W -f='${Status}' ffmpeg 2>/dev/null | grep -c "ok installed") -eq 0 ]; then
+  echo "Installing ffmpeg...";
+  sudo apt update
+  sudo apt-get install -y ffmpeg
+fi
+
+mkdir -p $tmpdir/src
+mkdir -p $tmpdir/out
+
+# Extract the audio
+echo "Extracting the audio"
+ffmpeg -i $filename -vn -acodec copy $tmpdir/audio.aac
+
+# Convert frames to images
+echo "Converting video to still images"
+ffmpeg -i $filename $tmpdir/src/%04d.png -hide_banner -vf fps=30
+
+# Pixelate each frame
+echo "Converting still images to 8-Bit still images"
+for file in $tmpdir/src/*.png; do
+  cd /home/robbie/Downloads/pixelator-linux-x64/
+  ./_pixelator_cmd.exe "$file" "$tmpdir/out/$(basename -- $file)" --pixelate 18 --colors 16 --palette_mode adaptive --enhance 2 --smooth 3 --smooth_iterations 1 --refine_edges 250 --stroke outside --stroke_opacity 1 --stroke_on_colors_diff 0.7843137254901961 --background "#00000000" --palette_file ""
+done
+
+# Render back to video
+echo "Rendering 8-Bit video"
+cd $tmpdir/out/
+ffmpeg -f image2 -framerate 30 -i $tmpdir/out/%04d.png -i $tmpdir/audio.aac -codec copy -shortest $folder/${filename}_8-bit.mp4
+
+echo "Done"
+
+echo $tmpdir
+exit
+
+rm -rf $tmpdir
